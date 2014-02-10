@@ -1,0 +1,395 @@
+/*
+ * C file for defining gtthread APIs.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <ucontext.h>
+#include "gtthread.h"
+#include "gtthread_queue.h"
+#define MEM 64000
+#define ERR 1
+
+/* Global variables */
+// Queue
+struct node * front = NULL;
+struct node * rear = NULL;
+struct node * current = NULL;
+struct node * temp = NULL;
+
+// Thread
+unsigned long thread_id = 0;
+int count = 0;
+ucontext_t swapperContext, targetContext, mainContext, scheduleContext;
+int flag = 0;				// Set by first thread
+
+// Signal
+struct itimerval it_val;	// For setting itimer
+struct sigaction sa;		// For taking an action on receiving SIGVTALRM
+int sigFlag = 0;			// Set by swapper upon retrieving scheduleContext initially
+
+/*
+ * TODO: create a global queue which stores all the list of created threads...
+ * and create "Current_thread" a pointer to currently executing thread or context...
+ * Implemented in queue.c
+ */
+
+/*
+ * Round Robin scheduler
+ *
+ * Swap the context with the thread next to the "Current_thread" in the queue and
+ * point the "Current_thread" to the next thread...
+ * If it was the last thread in the queue, then execute the main function
+ * once and then again start from the first thread in the queue and continue
+ * this until all threads have finished their execution
+ * when there are no more threads in the queue... just stop the
+ * timer and execute the main function until it completes...
+ */
+void schedule(void * in)
+{
+	ucontext_t tempContext;
+	/* Get scheduleContext */
+	/*
+	if(sigFlag == 0)
+	{
+		sigFlag = 1;
+		getcontext(&scheduleContext);
+		printf("in schedule if\n");
+		return;
+	}
+	*/
+	// ********* Everything depends on the current pointer. **********
+	//while(1)
+	//{
+		printf("schedule\n");
+		//display(&front, &rear);
+		/* Last node in queue or queue empty. Execute main. */
+		if(current == NULL && front != NULL)//((front == rear) && rear == NULL))
+		{
+			printf("If\n");
+			//targetContext = mainContext;
+
+			setCurrentThread(&current, &front);
+			//swapcontext(&currentContext, &targetContext);
+			swapcontext(&scheduleContext, &mainContext);
+		}
+		else
+		{
+			if(front == NULL)
+			{
+				/* Queue empty. Stop timer. Exit to main. */
+				it_val.it_interval.tv_sec = 0;
+				it_val.it_interval.tv_usec = 0;
+				setitimer(ITIMER_VIRTUAL, &it_val, NULL);
+				//setcontext(&mainContext);
+				swapcontext(&scheduleContext, &mainContext);
+				//break;
+			}
+			else
+			{
+				printf("Else\n");
+				//targetContext = getNextContext(&front, &rear, &current);
+				//swapcontext(&currentContext, &targetContext);
+				temp = current;
+				//tempContext = getNextContext(&front, &rear, &current);
+				//tempContext = current->context;
+				if(&current->next != NULL)
+				{
+					setCurrentThread(&current, &current->next);
+				}
+				else
+				{
+					setCurrentThread(&current, &front);
+				}
+				//swapcontext(&scheduleContext, &tempContext);
+				swapcontext(&temp->context, &current->context);
+			}
+		}
+		//currentContext = targetContext;
+		//swapcontext(&scheduleContext, &swapperContext);	// Return to swapper to spin.
+	//}
+}
+
+void swapper(int signum)
+{
+	/* Get scheduleContext if it is the first created thread */
+	//printf("Thread ID: %d\n", thread_id);
+	/*
+	if(sigFlag == 0)
+	{
+		printf("Before\n");
+		//schedule();
+		sigFlag = 1;
+		getcontext(&scheduleContext);
+		scheduleContext.uc_link=0;
+		scheduleContext.uc_stack.ss_sp=malloc(MEM);
+		scheduleContext.uc_stack.ss_size=MEM;
+		scheduleContext.uc_stack.ss_flags=0;
+		makecontext(&scheduleContext, (void *) schedule, 0);
+		printf("After\n");
+	}
+	*/
+	//getcontext(&swapperContext);
+	printf("After2\n");
+	//temp = current;
+	//swapcontext(&current->context, &scheduleContext);
+	swapcontext(&swapperContext, &scheduleContext);
+	printf("After3\n");
+	//while(1);	// Wait for sigaction to invoke this function again.
+}
+
+/*
+ * Specify preemption period in microseconds. Mandatory first function call.
+ */
+void gtthread_init(long period)
+{
+	/* Set signal handler to initiate  context switch upon receiving SIGVTALRM */
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = &swapper;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+	sigaction(SIGVTALRM, &sa, NULL);
+
+	/* Set timer expiration interval for the same period */
+	it_val.it_interval.tv_sec = 0;
+	it_val.it_interval.tv_usec = period;
+
+	/* Set timer for time in microseconds indicated by period */
+	it_val.it_value.tv_sec = 0;
+	it_val.it_value.tv_usec = period;
+}
+
+/*
+ * Initialize the context using getcontext(), attach a function
+ * using makecontext() and keep this in the ready_queue
+ * If this was the first thread that is created, then start the timer....
+ * Important: block all the signals while adding a new thread to the queue...
+ * and after adding it, just unblock all the signals that were previously blocked...
+ */
+int gtthread_create(gtthread_t *thread,
+                     void *(*start_routine)(void *),
+                     void *arg)
+{
+	/* Signaling variables */
+	sigset_t a,b;
+	sigemptyset(&a);
+	sigaddset(&a, SIGVTALRM);
+
+	/* Set and assign thread ID */
+	thread_id++;
+	(* thread) = thread_id;
+
+	/* Get current context */
+	//getcontext(&currentContext);
+
+	/* Set target context */
+	getcontext(&targetContext);
+	targetContext.uc_link		    = &mainContext;
+	targetContext.uc_stack.ss_sp    = malloc(MEM);
+	targetContext.uc_stack.ss_size  = MEM;
+	targetContext.uc_stack.ss_flags = 0;
+	makecontext(&targetContext, (void (*) (void)) start_routine, 1, &arg);
+
+	/* Set schedule context */
+	getcontext(&scheduleContext);
+	scheduleContext.uc_link			  = &swapperContext;
+	scheduleContext.uc_stack.ss_sp    = malloc(MEM);
+	scheduleContext.uc_stack.ss_size  = MEM;
+	scheduleContext.uc_stack.ss_flags = 0;
+	makecontext(&scheduleContext, (void (*) (void)) schedule, 0);
+
+	/* Start virtual timer for calling process upon creation of first thread */
+	if(flag == 0)
+	{
+		flag = 1;
+		/* Set main context */
+//		mainContext = currentContext;
+		printf("TID = 1\n");
+
+		/* Block SIGVTALRM for ensuring correct node insertion */
+		sigprocmask(SIG_BLOCK, &a, &b);
+
+		/* Add node to end of queue */
+		push(&front, &rear, thread, targetContext);
+
+		/* Unblock SIGVTALRM */
+		sigprocmask(SIG_SETMASK, &b, NULL);
+
+		/* Set first thread as current thread */
+		setCurrentThread(&current, &front);
+
+		/* Start timer */
+		setitimer(ITIMER_VIRTUAL, &it_val, NULL);
+	}
+	else
+	{
+		/* Block SIGVTALRM for ensuring correct node insertion */
+		sigprocmask(SIG_BLOCK, &a, &b);
+
+		/* Add node to end of queue */
+		push(&front, &rear, thread, targetContext);
+
+		/* Unblock SIGVTALRM */
+		sigprocmask(SIG_SETMASK, &b, NULL);
+	}
+
+	//display(&front, &rear);
+
+	/*
+	 * Save the current context into mainContext. When scheduler finishes,
+	 * control flow will return to this point.
+	 */
+	getcontext(&mainContext);
+
+	return 0;
+}
+
+int gtthread_join(gtthread_t thread, void **status)
+{
+	return 0;
+}
+
+void gtthread_exit(void *retval)
+{
+
+}
+
+int gtthread_yield(void)
+{
+	if(current != front)	// Not the only thread in queue
+	{
+		setCurrentThread(&current, &current->next);
+		usleep(1000);
+	}
+	return 0;
+}
+
+int gtthread_equal(gtthread_t t1, gtthread_t t2)
+{
+	if(t1 == t2)
+	{
+		return 1;	// The two threads are equal
+	}
+	else
+	{
+		return 0;	// The two threads are unequal
+	}
+}
+
+/*
+ * When the currently executing thread has finished its execution before
+ * the context switch, then this function should be executed...
+ * The main task is to remove the thread from the ready queue (of course you
+ * have to block all the signals and then unblock at last..) and at last it
+ * should call the schedule function.
+ */
+int gtthread_cancel(gtthread_t thread)
+{
+	return 0;
+}
+
+gtthread_t gtthread_self(void)
+{
+	gtthread_t thread_id;
+	//getcontext(&currentContext);
+	//thread_id = getThreadID
+	return thread_id;
+}
+
+int gtthread_mutex_init(gtthread_mutex_t *mutex)
+{
+	int result = 0;
+	gtthread_mutex_t gmt;
+
+	if(mutex == NULL)
+	{
+		return ERR;
+	}
+
+	gmt = (gtthread_mutex_t) malloc (sizeof(gtthread_mutex_t));
+	if(gmt == NULL)
+	{
+		result = ERR;
+	}
+	else
+	{
+		gmt->lock = 0; // Initialize mutex lock in unlocked state
+	}
+
+	(* mutex) = gmt;
+
+	return result;
+}
+
+int gtthread_mutex_lock(gtthread_mutex_t *mutex)
+{
+	int result = 0;
+	gtthread_mutex_t gmt;
+	gtthread_t thread;
+	thread = gtthread_self();
+
+	if(mutex == NULL)
+	{
+		return ERR;
+	}
+
+	gmt = mutex;
+
+	if(gmt->lock != 0)
+	{
+		/* Test and spin */
+		while(gmt->lock != 0)
+		{
+			if(gmt->lock == 0)	// Mutex is unlocked by locking thread
+			{
+				result = 0;
+				break;
+			}
+		}
+		gmt->owner = thread;
+		gmt->lock = 1;
+	}
+	else
+	{
+		gmt->owner = thread;
+		gmt->lock = 1;
+	}
+
+	return result;
+}
+
+int gtthread_mutex_unlock(gtthread_mutex_t *mutex)
+{
+	int result = 0;
+	gtthread_mutex_t gmt;
+	gtthread_t thread;
+	thread = gtthread_self();
+
+	if(mutex == NULL)
+	{
+		return ERR;
+	}
+
+	gmt = mutex;
+
+	if(gmt->lock != 0)
+	{
+		if(gmt->owner == thread)	// Locked mutex is owned by current unlocking thread
+		{
+			gmt->lock = 0;
+			gmt->owner = NULL;
+			result = 0;
+		}
+		else
+		{
+			result = ERR;	// Unauthorized mutex unlock is detected
+		}
+	}
+	else
+	{
+		result = ERR;	// Trying to unlock an already unlocked mutex
+	}
+
+	return result;
+}

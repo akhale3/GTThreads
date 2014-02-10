@@ -1,145 +1,162 @@
-/*
- * C file for defining gtthread APIs.
- */
-#include <stdio.h>
-#include <sys/time.h>
-#include <signal.h>
-#include <ucontext.h>
+/* C source file for defining gtthread APIs */
 #include "gtthread.h"
-#include "queue.h"
-#define MEM 64000
 
 /* Global variables */
-
-/*
- * TODO: create a global queue which stores all the list of created threads...
- * and create "Current_thread" a pointer to currently executing thread or context...
- * Implemented in queue.c
- */
-
-/*
- * Test itimer upon SIGVTALRM
- */
-void testTimer(int signum)
-{
-	static int count = 0;
-	count++;
-	printf("Timer expiration count: %d\n", count);
-}
-
-/*
- * TODO: Signal handler for SIGVTALRM
- * Swap the context with the thread next to the "Current_thread" in the queue and
- * point the "Current_thread" to the next thread...
- * If it was the last thread in the queue, then execute the main function
- * once and then again start from the first thread in the queue and continue
- * this until all threads have finished their execution
- * when there are no more threads in the queue... just stop the
- * timer and execute the main function until it completes...
- */
-void schedule()
-{
-
-}
+// Thread
+unsigned long thread_id = 0;
+ucontext_t targetContext, schedulerContext;
+int flag = 0;				// Set by first thread
 
 /*
  * Specify preemption period in microseconds. Mandatory first function call.
- * TODO:	Create timer for time = period using setitimer(2).
- *			Initiate context switching.
  */
 void gtthread_init(long period)
 {
-	struct itimerval it_val;	// For setting itimer
-	struct sigaction sa;		// For taking an action on receiving SIGVTALRM
+	/* Create a parent node in the queue */
+	thread_id++;
+	struct node * temp;
+	temp = (struct node *) malloc(sizeof(struct node));
 
-	/* Set signal handler to initiate context switch upon receiving SIGVTALRM */
-	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = &schedule;
-	sigaction(SIGVTALRM, &sa, NULL);
+	temp->data = thread_id;
+	temp->next = NULL;
+	temp->active = 1;
 
-	/* Set timer for time in microseconds indicated by period */
-	it_val.it_value.tv_sec = 0;
-	it_val.it_value.tv_usec = period;
+	front = temp;
+	rear = front;
 
-	/* Set timer expiration interval for the same period */
-	it_val.it_interval.tv_sec = 0;
-	it_val.it_value.tv_usec = period;
+	/* Set first thread as current thread */
+	setCurrentThread(front);
 
-	/* Start virtual timer for calling process */
-	setitimer(ITIMER_VIRTUAL, &it_val, NULL);
+	/* Invoke setVirtualTime function of scheduler */
+	initVirtualTime(period);
 }
 
 /*
- * Initialize the context using getcontext(), attach a function
- * using makecontext() and keep this in the ready_queue
- * If this was the first thread that is created, then start the timer....
- * Important: block all the signals while adding a new thread to the queue...
- * and after adding it, just unblock all the signals that were previously blocked...
+ * Start routine wrapper function.
  */
-int  gtthread_create(gtthread_t *thread,
+void gtthread_start(void *(*start_routine)(void *),
+					void *arg)
+{
+	void * retval = start_routine(arg);
+	if(!getcontext(&schedulerContext))
+	{
+		schedulerContext.uc_link		   = 0;
+		schedulerContext.uc_stack.ss_sp    = malloc(MEM);
+		schedulerContext.uc_stack.ss_size  = MEM;
+		schedulerContext.uc_stack.ss_flags = 0;
+		makecontext(&schedulerContext, (void (*) (void))schedule, 0);
+	}
+	setcontext(&schedulerContext);
+}
+
+/*
+ * Create thread context and enqueue.
+ */
+int gtthread_create(gtthread_t *thread,
                      void *(*start_routine)(void *),
                      void *arg)
 {
-	ucontext_t currentContext, targetContext;
-	getcontext(&currentContext);
+	/* Set and assign thread ID */
+	thread_id++;
+	*thread = thread_id;
+
+	/* Set target context */
 	getcontext(&targetContext);
-	targetContext.uc_link=0;
-	targetContext.uc_stack.ss_sp=malloc(MEM);
-	targetContext.uc_stack.ss_size=MEM;
-	targetContext.uc_stack.ss_flags=0;
-	push(thread, targetContext);
-	makecontext(&targetContext, (void *) start_routine, 0);
-	swapcontext(&currentContext, &targetContext);
+	targetContext.uc_link		    = 0;
+	targetContext.uc_stack.ss_sp    = malloc(MEM);
+	targetContext.uc_stack.ss_size  = MEM;
+	targetContext.uc_stack.ss_flags = 0;
+	makecontext(&targetContext, gtthread_start, 2, start_routine, &arg);
+
+	/* Enqueue */
+	enqueue(thread_id, targetContext);
+	fflush(stdout);
+
+	return 0;
 }
 
-int  gtthread_join(gtthread_t thread, void **status)
+int gtthread_join(gtthread_t thread, void **status)
 {
+	struct node * child;
+	child = front;
+	while(child->data != thread && child != NULL)
+	{
+		child = child->next;
+	}
 
+	/* Yield calling thread till child becomes inactive */
+	while(child->active != 0)
+	{
+		gtthread_yield();
+	}
+
+	if(status != NULL)
+	{
+		*status = child->ret;
+	}
+
+	return 0;
 }
 
 void gtthread_exit(void *retval)
 {
-
+	current->ret = retval;
+	current->active = 0;
+	if(front == rear && rear->next == NULL)
+	{
+		exit(0);
+	}
+	// TODO: Yield till its child processes finish execution
+	dequeue(current->data);
+	raise(SIGVTALRM);
 }
 
 int gtthread_yield(void)
 {
-
+	if(current != front)	// Not the only thread in queue
+	{
+		raise(SIGVTALRM);
+	}
+	return 0;
 }
 
-int  gtthread_equal(gtthread_t t1, gtthread_t t2)
+int gtthread_equal(gtthread_t t1, gtthread_t t2)
 {
-
+	if(t1 == t2)
+	{
+		return 1;	// The two threads are equal
+	}
+	else
+	{
+		return 0;	// The two threads are unequal
+	}
 }
 
-/*
- * When the currently executing thread has finished its execution before
- * the context switch, then this function should be executed...
- * The main task is to remove the thread from the ready queue (of course you
- * have to block all the signals and then unblock at last..) and at last it
- * should call the schedule function.
- */
-int  gtthread_cancel(gtthread_t thread)
+int gtthread_cancel(gtthread_t thread)
 {
-
+	struct node * child;
+	if(current->data == thread)
+	{
+		gtthread_exit((void *) GTTHREAD_CANCELLED);
+	}
+	else
+	{
+		child = front;
+		while(child->data != thread && child != NULL)
+		{
+			child = child->next;
+		}
+		child->active = 0;
+		child->ret = (void *) GTTHREAD_CANCELLED;
+		// TODO: Yield till its child processes finish execution
+		dequeue(child->data);
+	}
+	return 0;
 }
 
 gtthread_t gtthread_self(void)
 {
-
-}
-
-int  gtthread_mutex_init(gtthread_mutex_t *mutex)
-{
-
-}
-
-int  gtthread_mutex_lock(gtthread_mutex_t *mutex)
-{
-
-}
-
-int  gtthread_mutex_unlock(gtthread_mutex_t *mutex)
-{
-
+	gtthread_t thread_id;
+	thread_id = current->data;
+	return thread_id;
 }
