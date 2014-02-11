@@ -3,7 +3,6 @@
 
 #include "gtthread_mutex.h"
 
-#define MEM 64000
 #define GTTHREAD_CANCELLED "GTTHREAD_CANCELLED"
 
 /* Must be called before any of the below functions. Failure to do so may

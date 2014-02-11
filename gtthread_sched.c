@@ -26,9 +26,14 @@ void initVirtualTime(long period)
 
 	/* Set timer for time in microseconds indicated by period */
 	it_val.it_value.tv_sec = 0;
-	it_val.it_value.tv_usec = period;
+	it_val.it_value.tv_usec = period;\
 
-	//signal(SIGVTALRM, schedule);
+	/* Set scheduler context */
+	if(!getcontext(&schedulerContext))
+	{
+		setSchedulerContext();
+	}
+
 	sigaction(SIGVTALRM, &sa, NULL);
 	setitimer(ITIMER_VIRTUAL, &it_val, NULL);
 }
@@ -118,4 +123,13 @@ void schedule(int signal)
 		/* Swap context */
 		swapcontext(&zombie, &current->context);
 	}
+}
+
+void setSchedulerContext()
+{
+	schedulerContext.uc_link		   = 0;
+	schedulerContext.uc_stack.ss_sp    = malloc(MEM);
+	schedulerContext.uc_stack.ss_size  = MEM;
+	schedulerContext.uc_stack.ss_flags = 0;
+	makecontext(&schedulerContext, (void (*) (void))schedule, 0);
 }

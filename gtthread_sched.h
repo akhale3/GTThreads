@@ -4,12 +4,15 @@
 
 #include "gtthread_queue.h"
 
+#define MEM 64000
+
 /* Signaling variables */
 sigset_t sig;
 struct sigaction sa;
 
 /* Context */
 ucontext_t zombie;
+ucontext_t schedulerContext;
 
 /* Timer */
 struct itimerval it_val;
@@ -21,5 +24,6 @@ extern void unblockSignal();
 extern void enqueue(gtthread_t data, ucontext_t context);
 extern void dequeue(gtthread_t data);
 extern void schedule(int signal);
+extern void setSchedulerContext();
 
 #endif

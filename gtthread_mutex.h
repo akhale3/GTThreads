@@ -4,14 +4,10 @@
 
 #include "gtthread_sched.h"
 
-#define ERR 1
+#define MAX 100000
 
-struct gtthread_mutex_t{
-	int lock;
-	gtthread_t owner;
-};
-
-typedef struct gtthread_mutex_t * gtthread_mutex_t;
+typedef unsigned long gtthread_mutex_t;
+unsigned long mutexTracker[MAX];
 
 extern int gtthread_mutex_init(gtthread_mutex_t * mutex);
 extern int gtthread_mutex_lock(gtthread_mutex_t * mutex);

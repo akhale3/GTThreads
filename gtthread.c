@@ -4,7 +4,7 @@
 /* Global variables */
 // Thread
 unsigned long thread_id = 0;
-ucontext_t targetContext, schedulerContext;
+ucontext_t targetContext;
 int flag = 0;				// Set by first thread
 
 /*
@@ -37,15 +37,8 @@ void gtthread_init(long period)
 void gtthread_start(void *(*start_routine)(void *),
 					void *arg)
 {
-	void * retval = start_routine(arg);
-	if(!getcontext(&schedulerContext))
-	{
-		schedulerContext.uc_link		   = 0;
-		schedulerContext.uc_stack.ss_sp    = malloc(MEM);
-		schedulerContext.uc_stack.ss_size  = MEM;
-		schedulerContext.uc_stack.ss_flags = 0;
-		makecontext(&schedulerContext, (void (*) (void))schedule, 0);
-	}
+	//void * retval = start_routine(arg);
+	current->ret = start_routine(arg);
 	setcontext(&schedulerContext);
 }
 
@@ -62,11 +55,11 @@ int gtthread_create(gtthread_t *thread,
 
 	/* Set target context */
 	getcontext(&targetContext);
-	targetContext.uc_link		    = 0;
+	targetContext.uc_link		    = &schedulerContext;
 	targetContext.uc_stack.ss_sp    = malloc(MEM);
 	targetContext.uc_stack.ss_size  = MEM;
 	targetContext.uc_stack.ss_flags = 0;
-	makecontext(&targetContext, gtthread_start, 2, start_routine, &arg);
+	makecontext(&targetContext, gtthread_start, 2, start_routine, arg);
 
 	/* Enqueue */
 	enqueue(thread_id, targetContext);
@@ -113,10 +106,7 @@ void gtthread_exit(void *retval)
 
 int gtthread_yield(void)
 {
-	if(current != front)	// Not the only thread in queue
-	{
-		raise(SIGVTALRM);
-	}
+	raise(SIGVTALRM);
 	return 0;
 }
 

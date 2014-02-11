@@ -1,0 +1,36 @@
+# File		: README for GTThreads
+# Author	: Anish Khale
+# GT_ID		: 902872377
+# Course	: CS 6210 (Spring 2014)
+
+# FAQs
+1. What Linux platform do you use?
+A: Built on Mac OS X 10.9, Darwin Kernel Version 13.0.0, x86_64 architecture, and tested on killerbee1.cc.gatech.edu.
+
+2. How the preemptive scheduler is implemented?
+A:	2.1. A singly linked list is created to act as the ready queue for created gtthreads, pointed to by the front and rear pointers.
+	2.2. A current pointer is initialized to return the current executing thread throughout the execution of the program.
+	2.3. 'sigaction' is used in conjunction with 'itimer' to enable preemptive scheduling.
+	2.4. When the itimer counts down to 0, sigaction signals a SIGVTALRM to the scheduler.
+	2.5. The scheduler, on receiving the SIGVTALRM, stores the currently executing context into the corresponding thread's node, advances the current pointer in a round robin fashion and loads the corresponding thread context.
+
+3. How to compile your library and run your program?
+A:	3.1. In the parent directory of gtThreads, type 'make' to generate the library file gtthread.a.
+	3.2. To compile a custom program with the generated library, a shell script is included viz. compile.sh, that takes exactly 1 argument of the filename (minus extension) of the program to be compiled.
+	Usage: sh compile.sh <filename>
+	Example: sh compile.sh gtDiningPhilosophers
+	Internally, it runs the following command: gcc -Wall -pedantic -I{...} -o $1 $1.c gtthread.a
+	3.3. To run the program binary:
+	Usage: ./<filename>
+
+4. How do you prevent deadlocks in your Dining Philosophers solution?
+A:	4.1. In main, gtthread_mutex locks are initialized for chopsticks, equivalent to the number of philosophers defined.
+	4.2. Whenever a philosopher tries to acquire a chopstick, it must acquire the locks for both the left and right chopsticks, and must release them once he has finished eating.
+	4.3. In addition, the first philosopher is forced to sleep for a random microsecond period to ensure that the last philosopher finishes eating and does not deadlock.
+
+5. Any thoughts you have on the project, including things that work especially well or which don't work?
+A:	5.1. Thoughts on the project:
+	I found the project quite challenging, yet very informative. The only challenging part of this project was, perhaps, getting used to the semantics of the C programming language and the various APIs used here. Though not a robust implementation, this project has been coded with modularity as an important focus for better organization and debugging.
+	5.2. Things that work especially well:
+		5.2.1. Thread queue creation
+		5.2.2. Dining philosophers with pthreads

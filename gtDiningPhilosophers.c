@@ -3,11 +3,9 @@
 #include "gtthread.h"
 
 #define PHIL 5
-//#define DELAY 5000
 
 gtthread_mutex_t chopstick[PHIL];
 gtthread_t philo[PHIL];
-gtthread_mutex_t rice_lock;
 int rand_sleep = 0;
 
 void acquireChopstick (int phil, int c, char * hand)
@@ -53,7 +51,6 @@ void * philosopher (void * num)
 		acquireChopstick (id, leftChopstick, "left");
 
 		printf ("Philosopher %d is now eating.\n", id);
-		//usleep (DELAY);
 		usleep(rand_sleep);
 		releaseChopsticks (id, leftChopstick, rightChopstick);
 	}
@@ -68,9 +65,6 @@ int main4 (int argc, char **argv)
 
 	/* Initialize a random sleep time between eating and thinking */
 	rand_sleep = rand() % 1000;
-
-	/* Initialize mutex lock for rice bowl */
-	gtthread_mutex_init (&rice_lock);
 
 	/* Initialize mutex lock for chopsticks */
 	for (i = 0; i < PHIL; i++)
